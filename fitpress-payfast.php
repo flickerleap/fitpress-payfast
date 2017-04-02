@@ -60,6 +60,285 @@ class FP_Payfast {
 
 	public function __construct(){
 
+		add_filter( 'fitpress_signup_redirect', 'fp_checkout_url' );
+
+		add_filter( 'fitpress_payment_methods', array( $this, 'add_payfast_method' ) );
+
+		add_action( 'fitpress_payment_method_payfast', array( $this, 'process_payment' ), 10, 2 );
+
+		add_action( 'fitpress_payment_notify_payfast', array( $this, 'process_notify' ), 10, 2 );
+
+		add_action( 'admin_init', array( $this, 'init_settings' ) );
+
+	}
+
+	public function add_payfast_method( $payment_methods ){
+
+		$payment_methods = array( 'payfast' => 'PayFast' );
+
+		return $payment_methods;
+
+	}
+
+	public function process_payment( $membership, $member ){
+
+		$settings = get_option( 'fitpress_settings' );
+
+		$payfast = $this->set_payfast_settings( $settings );
+		$fields = $this->get_fields( $membership, $member, $payfast );
+
+		$output = '<form action="' . $payfast['url'] . '" method="post">';
+		
+		foreach( $fields as $name => $value ):
+			$output .= '<input type="hidden" name="' . $name . '" value="' . $value . '">';
+		endforeach;
+
+		$output .= '<input type="submit" class="button" value="Pay on PayFast" />';
+		$output .= '</form>';
+
+		echo $output;
+
+	}
+
+	public function process_notify( $post_data ){
+
+		$settings = get_option( 'fitpress_settings' );
+
+		$this->verify_payment( $post_data );
+
+		switch( $pfData['payment_status'] )
+		{
+			case 'COMPLETE':
+			// If complete, update your application, email the buyer and process the transaction as paid                    
+			break;
+			case 'FAILED':                    
+			// There was an error, update your application and contact a member of PayFast's support team for further assistance
+			break;
+			case 'PENDING':
+			// The transaction is pending, please contact a member of PayFast's support team for further assistance
+			break;
+			default:
+			// If unknown status, do nothing (safest course of action)
+			break;
+		}
+
+	}
+
+	public function verify_payment( $post_data ) {
+
+		foreach ( $post_data as $key => $val ) :
+			$data[ $key ] = stripslashes( $val );
+		endforeach;
+
+		if( isset( $settings['payfast_passphrase'] ) ) :
+			$data['passphrase'] = $settings['payfast_passphrase'];
+		endif;
+
+		$payfast_string = '';
+
+		foreach ( $post_data as $key => $val ) :
+			if ( $key != 'signature' ) :
+				$payfast_string .= $key . '=' . urlencode( $val ) . '&';
+			endif;
+		endforeach;
+
+		$payfast_string = substr( $payfast_string, 0, -1 );
+
+		$signature = md5( $payfast_string );
+
+		if ( $signature != $post_data['signaturea'] ) :
+		   die('Invalid Signature');
+		endif;
+
+		$valid_hosts = array(
+			'www.payfast.co.za',
+			'sandbox.payfast.co.za',
+			'w1w.payfast.co.za',
+			'w2w.payfast.co.za',
+		);
+
+		$valid_ips = array();
+
+		foreach ( $valid_hosts as $payfast_host_name ) :
+			$ips = gethostbynamel( $payfast_host_name );
+
+			if ( $ips !== false ) :
+				$valid_ips = array_merge( $valid_ips, $ips );
+			endif;
+		endforeach;
+
+		$valid_ips = array_unique( $valid_ips );
+
+		if ( ! in_array( $_SERVER['REMOTE_ADDR'], $valid_ips ) ) :
+			die('Source IP not Valid');
+		endif;
+
+	}
+
+	public function get_fields( $membership, $member, $payfast ){
+		
+		$first_name = get_user_meta( $member->ID, 'first_name', true );
+		$last_name = get_user_meta( $member->ID, 'last_name', true );
+		$email_address = $member->data->user_email;
+
+		switch( $membership['term'] ):
+
+			case '+12 month':
+				$frequency = 6;
+			case '+6 month':
+				$frequency = 5;
+			case '+3 month':
+				$frequency = 4;
+			case '+1 month':
+			default: 
+				$frequency = 3;
+				break;
+
+		endswitch;
+
+		$fields = array(
+			'merchant_id' => $payfast['merchant_id'],
+			'merchant_key' => $payfast['merchant_key'],
+			'return_url' => $payfast['return_url'],
+			'cancel_url' => $payfast['cancel_url'],
+			'notify_url' => $payfast['notify_url'],
+			'name_first' => $first_name,
+			'name_last'  => $last_name,
+			'email_address' => $email_address,
+			'm_payment_id' => $member->ID,
+			'amount' => number_format( sprintf( '%.2f', $membership['price'] ), 2, '.', '' ),
+			'item_name' => get_bloginfo( 'name' ),
+			'item_description' => $membership['name'] . ' membership',
+		);
+
+		if ( $membership['term'] != 'Once Off' ) :
+			$fields = array_merge( $fields, array(
+				'subscription_type' => 1,
+				'frequency' => $frequency,
+			) );
+		endif;
+
+		$string_output = '';
+
+		foreach ( $fields as $key => $val ) :
+			if ( ! empty( $val ) ) :
+				$string_output .= $key . '=' . urlencode( trim( $val ) ) . '&';
+			endif;
+		endforeach;
+
+		$string_output = substr( $string_output, 0, -1 );
+
+		if ( isset( $payfast['passphrase'] ) ) :
+			$string_output .= '&passphrase=' . urlencode( trim( $payfast['passphrase'] ) );
+		endif;
+
+		$fields['signature'] = md5( $string_output );
+
+		return $fields;
+
+	}
+
+	public function set_payfast_settings( $payfast_settings ){
+
+		$settings = array();
+
+		if ( isset( $payfast_settings['payfast_mode'] ) && $payfast_settings['payfast_mode'] == 'production' ) :
+			$settings['url'] = 'https://www.payfast.co.za/eng/process';
+		else :
+			$settings['url'] = 'https://sandbox.payfast.co.za/eng/process';
+		endif;
+
+		if ( isset( $payfast_settings['payfast_merchant_id'] ) ) :
+			$settings['merchant_id'] = $payfast_settings['payfast_merchant_id'];
+		else :
+			$settings['merchant_id'] = '10001822';
+		endif;
+
+		if ( isset( $payfast_settings['payfast_merchant_key'] ) ) :
+			$settings['merchant_key'] = $payfast_settings['payfast_merchant_key'];
+		else :
+			$settings['merchant_key'] = 'gcy7w8gmun4pc';
+		endif;
+
+		if ( isset( $payfast_settings['payfast_passphrase'] ) ) :
+			$settings['passphrase'] = $payfast_settings['payfast_passphrase'];
+		endif;
+
+		$settings['return_url'] = fp_confirm_url();
+		$settings['cancel_url'] = fp_checkout_url();
+		$settings['notify_url'] = fp_notify_url() . '?method=payfast';
+
+		return $settings;
+
+	}
+
+	public function init_settings() {
+
+		$this->settings = get_option( 'fitpress_settings' );
+
+		add_settings_section(
+			'payfast_settings',
+			'PayFast Settings',
+			array( $this, 'payfast_settings_callback_function' ),
+			'fp_settings'
+		);
+
+		add_settings_field(
+			'payfast_merchant_id',
+			'Merchant ID',
+			array( $this, 'merchant_id_callback_function' ),
+			'fp_settings',
+			'payfast_settings'
+		);
+		add_settings_field(
+			'payfast_merchant_key',
+			'Merchant Key',
+			array( $this, 'merchant_key_callback_function' ),
+			'fp_settings',
+			'payfast_settings'
+		);
+		add_settings_field(
+			'payfast_passphrase',
+			'PayFast Passphrase',
+			array( $this, 'passphrase_callback_function' ),
+			'fp_settings',
+			'payfast_settings'
+		);
+		add_settings_field(
+			'payfast_mode',
+			'Merchant Key',
+			array( $this, 'mode_callback_function' ),
+			'fp_settings',
+			'payfast_settings'
+		);
+
+		register_setting( 'fp_settings', 'fitpress_settings' );
+
+	}
+
+	public function payfast_settings_callback_function() {
+	}
+
+	public function merchant_id_callback_function() {
+		$value = (! empty( $this->settings['payfast_merchant_id'] ) ) ? $this->settings['payfast_merchant_id'] : '';
+		echo '<input name="fitpress_settings[payfast_merchant_id]" id="payfast_merchant_id" type="text" value="' . $value . '" />';
+	}
+
+	public function merchant_key_callback_function() {
+		$value = (! empty( $this->settings['payfast_merchant_key'] ) ) ? $this->settings['payfast_merchant_key'] : '';
+		echo '<input name="fitpress_settings[payfast_merchant_key]" id="payfast_merchant_key" type="text" value="' . $value . '" />';
+	}
+
+	public function passphrase_callback_function() {
+		$value = (! empty( $this->settings['payfast_passphrase'] ) ) ? $this->settings['payfast_passphrase'] : '';
+		echo '<input name="fitpress_settings[payfast_passphrase]" id="payfast_passphrase" type="text" value="' . $value . '" />';
+	}
+
+	public function mode_callback_function() {
+		$value = (! empty( $this->settings['payfast_mode'] ) ) ? $this->settings['payfast_mode'] : 'testing';
+		echo '<input name="fitpress_settings[payfast_mode]" id="payfast_mode" type="radio" value="testing"  ' . checked( 'testing', $value, false ) . ' /> Testing';
+		echo '<br />';
+		echo '<input name="fitpress_settings[payfast_mode]" id="payfast_mode" type="radio" ' . checked( 'production', $value, false ) . ' value="production" /> Production';
 	}
 
 	public static function fitpress_inactive_notice() {
