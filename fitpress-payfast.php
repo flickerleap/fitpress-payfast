@@ -100,31 +100,58 @@ class FP_Payfast {
 
 	}
 
-	public function process_notify( $post_data ){
+	public function save_token( $member_id, $token ){
+		update_user_meta( $member_id, 'fp_payfast_token', $token );
+	}
 
-		$settings = get_option( 'fitpress_settings' );
+	public function process_notify( $post_data ) {
 
 		$this->verify_payment( $post_data );
 
-		switch( $pfData['payment_status'] )
-		{
-			case 'COMPLETE':
-			// If complete, update your application, email the buyer and process the transaction as paid                    
-			break;
-			case 'FAILED':                    
-			// There was an error, update your application and contact a member of PayFast's support team for further assistance
-			break;
-			case 'PENDING':
-			// The transaction is pending, please contact a member of PayFast's support team for further assistance
-			break;
-			default:
-			// If unknown status, do nothing (safest course of action)
-			break;
-		}
+		$this->save_token( $post_data['m_payment_id'], $post_data['token'] );
+
+		$payment = new FP_Payment();
+
+		if ( ! $payment->has_payment( $post_data['pf_payment_id'] ) ) :
+
+			$payment_data = array(
+				'amount' => 'amount_gross',
+				'member_id' => $post_data['m_payment_id'],
+				'reference' => $post_data['pf_payment_id'],
+			);
+
+			switch ( $post_data['payment_status'] ) :
+				case 'COMPLETE':
+					$payment->process_payment( 'complete', $payment_data );
+				break;
+				case 'FAILED':
+					$payment->process_payment( 'failed', $payment_data );
+				break;
+				case 'PENDING':
+					$payment->process_payment( 'pending', $payment_data );
+				break;
+				case 'CANCELLED':
+					$payment->process_payment( 'cancelled', $payment_data );
+				break;
+				default:
+				break;
+			endswitch;
+
+			die('Payment recorded.');
+
+		else:
+
+			die('Already has payment.');
+
+		endif;
 
 	}
 
 	public function verify_payment( $post_data ) {
+
+		$settings = get_option( 'fitpress_settings' );
+
+		$data = array();
 
 		foreach ( $post_data as $key => $val ) :
 			$data[ $key ] = stripslashes( $val );
@@ -136,7 +163,7 @@ class FP_Payfast {
 
 		$payfast_string = '';
 
-		foreach ( $post_data as $key => $val ) :
+		foreach ( $data as $key => $val ) :
 			if ( $key != 'signature' ) :
 				$payfast_string .= $key . '=' . urlencode( $val ) . '&';
 			endif;
@@ -146,7 +173,7 @@ class FP_Payfast {
 
 		$signature = md5( $payfast_string );
 
-		if ( $signature != $post_data['signaturea'] ) :
+		if ( $signature != $post_data['signature'] ) :
 		   die('Invalid Signature');
 		endif;
 
@@ -155,6 +182,7 @@ class FP_Payfast {
 			'sandbox.payfast.co.za',
 			'w1w.payfast.co.za',
 			'w2w.payfast.co.za',
+			'192.168.33.1'
 		);
 
 		$valid_ips = array();
