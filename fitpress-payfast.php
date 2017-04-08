@@ -64,7 +64,7 @@ class FP_Payfast {
 
 		add_filter( 'fitpress_payment_methods', array( $this, 'add_payfast_method' ) );
 
-		add_action( 'fitpress_payment_method_payfast', array( $this, 'process_payment' ), 10, 2 );
+		add_filter( 'fitpress_payment_method_payfast', array( $this, 'process_payment' ), 10, 2 );
 
 		add_action( 'fitpress_payment_notify_payfast', array( $this, 'process_notify' ), 10, 2 );
 
@@ -93,10 +93,10 @@ class FP_Payfast {
 			$output .= '<input type="hidden" name="' . $name . '" value="' . $value . '">';
 		endforeach;
 
-		$output .= '<input type="submit" class="button" value="Pay on PayFast" />';
+		$output .= '<p class="form-row form-row-submit"><input type="submit" class="button" value="Pay on PayFast" /></p>';
 		$output .= '</form>';
 
-		echo $output;
+		return $output;
 
 	}
 
