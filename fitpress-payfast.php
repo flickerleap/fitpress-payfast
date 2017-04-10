@@ -68,7 +68,31 @@ class FP_Payfast {
 
 		add_action( 'fitpress_payment_notify_payfast', array( $this, 'process_notify' ), 10, 2 );
 
+		add_action( 'fitpress_after_membership', array( $this, 'account_payment' ), 10, 1 );
+
 		add_action( 'admin_init', array( $this, 'init_settings' ) );
+
+		add_filter( 'fitpress_payment_token', array( $this, 'has_token' ) );
+
+	}
+
+	public function has_token( $has_token ) {
+
+		if ( ! $this->get_token( get_current_user_id() ) ) :
+			return false;
+		endif;
+
+		return true;
+
+	}
+
+	public function account_payment( $member_id ){
+
+		if ( $token = $this->get_token( $member_id ) ) :
+			echo '<p>PayFast is set up as your payment method.</p>';
+		else :
+			echo '<p>Set up PayFast as your payment method <a class="btn button" href="' . fp_checkout_url() . '">Set up PayFast</a></p>';
+		endif;
 
 	}
 
@@ -102,6 +126,10 @@ class FP_Payfast {
 
 	public function save_token( $member_id, $token ){
 		update_user_meta( $member_id, 'fp_payfast_token', $token );
+	}
+
+	public function get_token( $member_id ){
+		return get_user_meta( $member_id, 'fp_payfast_token', false );
 	}
 
 	public function process_notify( $post_data ) {
@@ -239,11 +267,22 @@ class FP_Payfast {
 			'item_description' => $membership['name'] . ' membership',
 		);
 
-		if ( $membership['term'] != 'Once Off' ) :
-			$fields = array_merge( $fields, array(
-				'subscription_type' => 1,
-				'frequency' => $frequency,
-			) );
+		if ( 'Once Off' != $membership['term'] ) :
+			$membership_status = new FP_Membership_Status( $member->ID );
+			if ( 'active' == $membership_status->get_status() ) :
+				$fields = array_merge( $fields, array(
+					'subscription_type' => 1,
+					'billing_date' => date( 'Y-m-d', get_user_meta( $member->ID, 'fitpress_next_invoice_date', true ) ),
+					'recurring_amount' => number_format( sprintf( '%.2f', $membership['price'] ), 2, '.', '' ),
+					'frequency' => $frequency,
+				) );
+				$fields['amount'] = number_format( sprintf( '%.2f', 0 ), 2, '.', '' );
+			else :
+				$fields = array_merge( $fields, array(
+					'subscription_type' => 1,
+					'frequency' => $frequency,
+				) );
+			endif;
 		endif;
 
 		$string_output = '';
