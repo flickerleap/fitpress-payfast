@@ -68,7 +68,7 @@ class FP_Payfast {
 
 		add_action( 'fitpress_payment_notify_payfast', array( $this, 'process_notify' ), 10, 2 );
 
-		add_action( 'fitpress_after_membership', array( $this, 'account_payment' ), 10, 1 );
+		add_action( 'fitpress_before_membership', array( $this, 'account_payment' ), 10, 1 );
 
 		add_action( 'admin_init', array( $this, 'init_settings' ) );
 
@@ -78,7 +78,9 @@ class FP_Payfast {
 
 	public function has_token( $has_token ) {
 
-		if ( ! $this->get_token( get_current_user_id() ) ) :
+		$membership = FP_Membership::get_user_membership( get_current_user_id() );
+
+		if ( ! $this->get_token( $membership['membership_id'] ) ) :
 			return false;
 		endif;
 
@@ -104,7 +106,7 @@ class FP_Payfast {
 
 	}
 
-	public function process_payment( $membership, $member ){
+	public function process_payment( $membership, $member, $pay_now ){
 
 		$settings = get_option( 'fitpress_settings' );
 
@@ -117,19 +119,24 @@ class FP_Payfast {
 			$output .= '<input type="hidden" name="' . $name . '" value="' . $value . '">';
 		endforeach;
 
-		$output .= '<p class="form-row form-row-submit"><input type="submit" class="button" value="Pay on PayFast" /></p>';
+		$membership_status = new FP_Membership_Status( $membership['membership_id'] );
+		if ( 'active' == $membership_status->get_status() && 'Once Off' != $membership['term'] ) :
+			$output .= '<p class="form-row form-row-submit"><input type="submit" class="button" value="Connect to PayFast" /></p>';
+		else :
+			$output .= '<p class="form-row form-row-submit"><input type="submit" class="button" value="Pay on PayFast" /></p>';
+		endif;
 		$output .= '</form>';
 
 		return $output;
 
 	}
 
-	public function save_token( $member_id, $token ){
-		update_user_meta( $member_id, 'fp_payfast_token', $token );
+	public function save_token( $membership_id, $token ){
+		update_post_meta( $membership_id, 'fp_payfast_token', $token );
 	}
 
-	public function get_token( $member_id ){
-		return get_user_meta( $member_id, 'fp_payfast_token', false );
+	public function get_token( $membership_id ){
+		return get_post_meta( $membership_id, 'fp_payfast_token', false );
 	}
 
 	public function process_notify( $post_data ) {
@@ -144,7 +151,7 @@ class FP_Payfast {
 
 			$payment_data = array(
 				'amount' => 'amount_gross',
-				'member_id' => $post_data['m_payment_id'],
+				'membership_id' => $post_data['m_payment_id'],
 				'reference' => $post_data['pf_payment_id'],
 			);
 
@@ -261,14 +268,14 @@ class FP_Payfast {
 			'name_first' => $first_name,
 			'name_last'  => $last_name,
 			'email_address' => $email_address,
-			'm_payment_id' => $member->ID,
+			'm_payment_id' => $membership['membership_id'],
 			'amount' => number_format( sprintf( '%.2f', $membership['price'] ), 2, '.', '' ),
 			'item_name' => get_bloginfo( 'name' ),
 			'item_description' => $membership['name'] . ' membership',
 		);
 
 		if ( 'Once Off' != $membership['term'] ) :
-			$membership_status = new FP_Membership_Status( $member->ID );
+			$membership_status = new FP_Membership_Status( $membership['membership_id'] );
 			if ( 'active' == $membership_status->get_status() ) :
 				$fields = array_merge( $fields, array(
 					'subscription_type' => 1,
@@ -315,13 +322,13 @@ class FP_Payfast {
 			$settings['url'] = 'https://sandbox.payfast.co.za/eng/process';
 		endif;
 
-		if ( isset( $payfast_settings['payfast_merchant_id'] ) ) :
+		if ( isset( $payfast_settings['payfast_merchant_id'] ) && ! empty ( $payfast_settings['payfast_merchant_id'] )  ) :
 			$settings['merchant_id'] = $payfast_settings['payfast_merchant_id'];
 		else :
 			$settings['merchant_id'] = '10001822';
 		endif;
 
-		if ( isset( $payfast_settings['payfast_merchant_key'] ) ) :
+		if ( isset( $payfast_settings['payfast_merchant_key'] ) && ! empty ( $payfast_settings['payfast_merchant_key'] ) ) :
 			$settings['merchant_key'] = $payfast_settings['payfast_merchant_key'];
 		else :
 			$settings['merchant_key'] = 'gcy7w8gmun4pc';
