@@ -106,7 +106,7 @@ class FP_Payfast {
 
 	}
 
-	public function process_payment( $membership, $member, $pay_now ){
+	public function process_payment( $membership, $member ){
 
 		$settings = get_option( 'fitpress_settings' );
 
