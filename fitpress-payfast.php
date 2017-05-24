@@ -88,17 +88,19 @@ class FP_Payfast {
 
 	}
 
-	public function account_payment( $member_id ){
+	public function account_payment( $membership_id ) {
 
-		if ( $token = $this->get_token( $member_id ) ) :
+		$membership_status = new FP_Membership_Status( $membership_id );
+
+		if ( $token = $this->get_token( $membership_id ) ) :
 			echo '<p>PayFast is set up as your payment method.</p>';
-		else :
+		elseif ( 'active' == $membership_status->get_status() ) :
 			echo '<p>Set up PayFast as your payment method <a class="btn button" href="' . fp_checkout_url() . '">Set up PayFast</a></p>';
 		endif;
 
 	}
 
-	public function add_payfast_method( $payment_methods ){
+	public function add_payfast_method( $payment_methods ) {
 
 		$payment_methods = array( 'payfast' => 'PayFast' );
 
@@ -106,7 +108,7 @@ class FP_Payfast {
 
 	}
 
-	public function process_payment( $membership, $member ){
+	public function process_payment( $membership, $member ) {
 
 		$settings = get_option( 'fitpress_settings' );
 
@@ -114,8 +116,8 @@ class FP_Payfast {
 		$fields = $this->get_fields( $membership, $member, $payfast );
 
 		$output = '<form action="' . $payfast['url'] . '" method="post">';
-		
-		foreach( $fields as $name => $value ):
+
+		foreach ( $fields as $name => $value ) :
 			$output .= '<input type="hidden" name="' . $name . '" value="' . $value . '">';
 		endforeach;
 
@@ -131,11 +133,11 @@ class FP_Payfast {
 
 	}
 
-	public function save_token( $membership_id, $token ){
+	public function save_token( $membership_id, $token ) {
 		update_post_meta( $membership_id, 'fp_payfast_token', $token );
 	}
 
-	public function get_token( $membership_id ){
+	public function get_token( $membership_id ) {
 		return get_post_meta( $membership_id, 'fp_payfast_token', false );
 	}
 
